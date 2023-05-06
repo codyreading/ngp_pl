@@ -1,0 +1,2 @@
+# Fern
+Epoch 29: : 1003it [02:26,  6.87it/s, loss=0.00197, v_num=1, train/rm_s=93.30, train/vr_s=66.50, train/psnr=26.70, test/psnr=23.70]                                                      
