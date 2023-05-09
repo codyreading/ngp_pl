@@ -25,7 +25,7 @@ from losses import NeRFLoss
 
 # metrics
 from torchmetrics import (
-    PeakSignalNoiseRatio, 
+    PeakSignalNoiseRatio,
     StructuralSimilarityIndexMeasure
 )
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
@@ -39,7 +39,8 @@ from pytorch_lightning.utilities.distributed import all_gather_ddp_if_available
 
 from utils import slim_ckpt, load_ckpt
 
-import warnings; warnings.filterwarnings("ignore")
+import warnings
+warnings.filterwarnings("ignore")
 
 
 def depth2img(depth):
@@ -71,12 +72,12 @@ class NeRFSystem(LightningModule):
         self.model = NGP(scale=self.hparams.scale, rgb_act=rgb_act)
         G = self.model.grid_size
         self.model.register_buffer('density_grid',
-            torch.zeros(self.model.cascades, G**3))
+                                   torch.zeros(self.model.cascades, G**3))
         self.model.register_buffer('grid_coords',
-            create_meshgrid3d(G, G, G, False, dtype=torch.int32).reshape(-1, 3))
+                                   create_meshgrid3d(G, G, G, False, dtype=torch.int32).reshape(-1, 3))
 
     def forward(self, batch, split):
-        if split=='train':
+        if split == 'train':
             poses = self.poses[batch['img_idxs']]
             directions = self.directions[batch['pix_idxs']]
         else:
@@ -90,7 +91,7 @@ class NeRFSystem(LightningModule):
 
         rays_o, rays_d = get_rays(directions, poses)
 
-        kwargs = {'test_time': split!='train',
+        kwargs = {'test_time': split != 'train',
                   'random_bg': self.hparams.random_bg}
         if self.hparams.scale > 0.5:
             kwargs['exp_step_factor'] = 1/256
@@ -106,32 +107,31 @@ class NeRFSystem(LightningModule):
         self.train_dataset = dataset(split=self.hparams.split, **kwargs)
         self.train_dataset.batch_size = self.hparams.batch_size
         self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
-
         self.test_dataset = dataset(split='test', **kwargs)
-
-    def configure_optimizers(self):
         # define additional parameters
         self.register_buffer('directions', self.train_dataset.directions.to(self.device))
         self.register_buffer('poses', self.train_dataset.poses.to(self.device))
 
+    def configure_optimizers(self):
         if self.hparams.optimize_ext:
             N = len(self.train_dataset.poses)
             self.register_parameter('dR',
-                nn.Parameter(torch.zeros(N, 3, device=self.device)))
+                                    nn.Parameter(torch.zeros(N, 3, device=self.device)))
             self.register_parameter('dT',
-                nn.Parameter(torch.zeros(N, 3, device=self.device)))
+                                    nn.Parameter(torch.zeros(N, 3, device=self.device)))
 
         load_ckpt(self.model, self.hparams.weight_path)
 
         net_params = []
         for n, p in self.named_parameters():
-            if n not in ['dR', 'dT']: net_params += [p]
+            if n not in ['dR', 'dT']:
+                net_params += [p]
 
         opts = []
         self.net_opt = FusedAdam(net_params, self.hparams.lr, eps=1e-15)
         opts += [self.net_opt]
         if self.hparams.optimize_ext:
-            opts += [FusedAdam([self.dR, self.dT], 1e-6)] # learning rate is hard-coded
+            opts += [FusedAdam([self.dR, self.dT], 1e-6)]  # learning rate is hard-coded
         net_sch = CosineAnnealingLR(self.net_opt,
                                     self.hparams.num_epochs,
                                     self.hparams.lr/30)
@@ -157,17 +157,17 @@ class NeRFSystem(LightningModule):
                                         self.train_dataset.img_wh)
 
     def training_step(self, batch, batch_nb, *args):
-        if self.global_step%self.update_interval == 0:
+        if self.global_step % self.update_interval == 0:
             self.model.update_density_grid(0.01*MAX_SAMPLES/3**0.5,
-                                           warmup=self.global_step<self.warmup_steps,
-                                           erode=self.hparams.dataset_name=='colmap')
+                                           warmup=self.global_step < self.warmup_steps,
+                                           erode=self.hparams.dataset_name == 'colmap')
 
         results = self(batch, split='train')
         loss_d = self.loss(results, batch)
         if self.hparams.use_exposure:
             zero_radiance = torch.zeros(1, 3, device=self.device)
             unit_exposure_rgb = self.model.log_radiance_to_rgb(zero_radiance,
-                                    **{'exposure': torch.ones(1, 1, device=self.device)})
+                                                               **{'exposure': torch.ones(1, 1, device=self.device)})
             loss_d['unit_exposure'] = \
                 0.5*(unit_exposure_rgb-self.train_dataset.unit_exposure_rgb)**2
         loss = sum(lo.mean() for lo in loss_d.values())
@@ -212,7 +212,7 @@ class NeRFSystem(LightningModule):
             logs['lpips'] = self.val_lpips.compute()
             self.val_lpips.reset()
 
-        if not self.hparams.no_save_test: # save test image to disk
+        if not self.hparams.no_save_test:  # save test image to disk
             idx = batch['img_idxs']
             rgb_pred = rearrange(results['rgb'].cpu().numpy(), '(h w) c -> h w c', h=h)
             rgb_pred = (rgb_pred*255).astype(np.uint8)
@@ -249,9 +249,14 @@ if __name__ == '__main__':
         raise ValueError('You need to provide a @ckpt_path for validation!')
     system = NeRFSystem(hparams)
 
+    if hparams.val_only:
+        save_weights_only = False
+    else:
+        save_weights_only = True
+
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.dataset_name}/{hparams.exp_name}',
                               filename='{epoch:d}',
-                              save_weights_only=True,
+                              save_weights_only=save_weights_only,
                               every_n_epochs=hparams.num_epochs,
                               save_on_train_epoch_end=True,
                               save_top_k=-1)
@@ -269,21 +274,22 @@ if __name__ == '__main__':
                       accelerator='gpu',
                       devices=hparams.num_gpus,
                       strategy=DDPPlugin(find_unused_parameters=False)
-                               if hparams.num_gpus>1 else None,
+                      if hparams.num_gpus > 1 else None,
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
                       precision=16)
 
-    trainer.fit(system, ckpt_path=hparams.ckpt_path)
-
-    if not hparams.val_only: # save slimmed ckpt for the last epoch
+    if not hparams.val_only:  # save slimmed ckpt for the last epoch
+        trainer.fit(system, ckpt_path=hparams.ckpt_path)
         ckpt_ = \
             slim_ckpt(f'ckpts/{hparams.dataset_name}/{hparams.exp_name}/epoch={hparams.num_epochs-1}.ckpt',
                       save_poses=hparams.optimize_ext)
         torch.save(ckpt_, f'ckpts/{hparams.dataset_name}/{hparams.exp_name}/epoch={hparams.num_epochs-1}_slim.ckpt')
+    else:
+        trainer.validate(system, ckpt_path=hparams.ckpt_path)
 
     if (not hparams.no_save_test) and \
-       hparams.dataset_name=='nsvf' and \
-       'Synthetic' in hparams.root_dir: # save video
+       hparams.dataset_name == 'nsvf' and \
+       'Synthetic' in hparams.root_dir:  # save video
         imgs = sorted(glob.glob(os.path.join(system.val_dir, '*.png')))
         imageio.mimsave(os.path.join(system.val_dir, 'rgb.mp4'),
                         [imageio.imread(img) for img in imgs[::2]],

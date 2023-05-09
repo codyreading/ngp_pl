@@ -80,6 +80,12 @@ Use `test.ipynb` to generate images. Lego pretrained model is available [here](h
 
 GUI usage: run `python show_gui.py` followed by the **same** hyperparameters used in training (`dataset_name`, `root_dir`, etc) and **add the checkpoint path** with `--ckpt_path <path/to/.ckpt>`
 
+# Running on LLFF Data
+```
+bash benchmarking/train_llff.sh
+bash benchmarking/infer_llff.sh
+```
+
 # Comparison with torch-ngp and the paper
 
 I compared the quality (average testing PSNR on `Synthetic-NeRF`) and the inference speed (on `Lego` scene) v.s. the concurrent work torch-ngp (default settings) and the paper, all trained for about 5 minutes:
